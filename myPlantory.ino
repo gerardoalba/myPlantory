@@ -2,6 +2,8 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_TSL2561_U.h>
+#include <SPI.h>
+#include <Ethernet.h>
 
 #define DISPARO 1000
 #define SENSOR_HUMEDAD_PIN 0 
@@ -28,9 +30,26 @@ struct valvula valvula;
 struct sensor sensor;
 
 Adafruit_TSL2561_Unified tsl = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT, 12345);
+//tiempos lecturas Temperatura (segundos);
 unsigned long timer_tsl;
 unsigned long tiempo_tsl = 10;
 
+//tiempos ejecucion RIEGO (segundos)
+unsigned long timer_riego;
+unsigned long tiempo_riego = 10;
+
+//tiempos envio de informacion (segundos)
+unsigned long timer_post;
+unsigned long tiempo_post = 60;
+
+/*ETHERNET*/
+
+byte mac[] = {
+  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
+};
+IPAddress ip(192, 168, 1, 4);
+
+EthernetServer server(80);
 
 void setup()
 {
@@ -60,6 +79,7 @@ void setup()
     Serial.println("");
     timer_tsl = millis();
     timer_riego = millis();
+    timer_post = millis();
 
 }
 
@@ -75,8 +95,15 @@ void loop()
     }
 
     if(timer(timer_post,tiempo_post)){
-        enviarDatos();
+        EthernetClient clientRequest;
+        enviarRequest(clientRequest);
+        clientRequest.stop();
         timer_post = millis();
+    }
+
+    EthernetClient clientServer = server.available();
+    if (clientServer){
+        procesarCliente(clientServer);
     }
 
 }
@@ -149,3 +176,89 @@ void ejecutarRiego(){
     }  
 }
 
+void enviarRequest(EthernetClient client){
+  // if there's a successful connection:
+  char serverAddress[] = "www.arduino.cc";  
+
+  if (client.connect(serverAddress, 80)) {
+    Serial.println("connecting...");
+    // send the HTTP PUT request:
+    client.println("GET /latest.txt HTTP/1.1");
+    client.println("Host: www.arduino.cc");
+    client.println("User-Agent: arduino-ethernet");
+    client.println("Connection: close");
+    client.println();
+
+    // note the time that the connection was made:
+    //lastConnectionTime = millis();
+  } 
+  else {
+    // if you couldn't make a connection:
+    Serial.println("connection failed");
+    Serial.println("disconnecting.");
+    client.stop();
+  }
+}
+
+void procesarCliente(EthernetClient client){
+    Serial.print("ETHERNET>");
+    Serial.println("new client");
+    // an http request ends with a blank line
+    boolean currentLineIsBlank = true;
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        // if you've gotten to the end of the line (received a newline
+        // character) and the line is blank, the http request has ended,
+        // so you can send a reply
+        if (c == '\n' && currentLineIsBlank) {
+          // send a standard http response header
+          client.println("HTTP/1.1 200 OK");
+          client.println("Content-Type: text/html");
+          client.println("Connection: close");  // the connection will be closed after completion of the response
+          //client.println("Refresh: 5");  // refresh the page automatically every 5 sec
+          client.println();
+          client.println("<!DOCTYPE HTML>");
+          client.println("<html>");
+          // output the value of each analog input pin
+          int sensorReading = analogRead(0);
+            client.print("analog input ");
+            client.print(0);
+            client.print(" is ");
+            client.print(sensorReading);
+            client.println("<br />");
+          int blue = map(sensorReading,0,1024,0,255);
+          char buffer[4]; buffer[0] = '\0';
+          sprintf(buffer,"%02x",blue);
+          client.print("<div id=\"rectangle\" style=\"width:200px; height:200px; background-color:#0000");
+          client.print(buffer);
+          client.print("\"></div>");
+          client.println("</html>");
+          break;
+        }
+        if (c == '\n') {
+          // you're starting a new line
+          currentLineIsBlank = true;
+        } else if (c != '\r') {
+          // you've gotten a character on the current line
+          currentLineIsBlank = false;
+        }
+      }
+    }
+    // give the web browser time to receive the data
+    delay(1);
+    // close the connection:
+    client.stop();
+    Serial.println("client disconnected");
+}
+
+void configureEthernet(){
+// start the Ethernet connection and the server:
+  Ethernet.begin(mac, ip);
+  server.begin();
+  Serial.print("ETHERNET> server is at");
+  Serial.println(Ethernet.localIP());
+
+
+}
