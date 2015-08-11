@@ -31,6 +31,8 @@ Adafruit_TSL2561_Unified tsl = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT, 1234
 unsigned long timer_tsl;
 unsigned long tiempo_tsl = 10;
 
+unsigned long timer_riego;
+unsigned long tiempo_riego = 10;
 
 void setup()
 {
@@ -72,11 +74,6 @@ void loop()
     if(timer(timer_tsl, tiempo_tsl)){
         lecturaLuminosidad();
         timer_tsl = millis();
-    }
-
-    if(timer(timer_post,tiempo_post)){
-        enviarDatos();
-        timer_post = millis();
     }
 
 }
